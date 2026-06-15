@@ -1,0 +1,168 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{amsmath}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+
+\begin{document}
+
+\begin{center}
+    {\Large \textbf{PitchVision Final Report}} \\
+    {\large Broadcast to 2D Mini-Map Projection} \\
+    \vspace{0.15cm}
+    \textbf{Author:} Peter Yaacoub \\
+    \textbf{Course:} Computer Vision \\
+    \textbf{Project Type:} Productivity
+\end{center}
+
+\vspace{0.2cm}
+\hrule
+
+\section{Project Goal}
+PitchVision is an experimental study investigating the feasibility of converting football broadcast frames into a tactical 2D mini-map. Because the project operates without camera calibration files or verified ground-truth annotations, it serves as an exploratory pipeline to identify the practical limitations, disadvantages, and failure modes of unsupervised projection and heuristic-based classification. The project combines object detection, jersey-color clustering, pitch-line extraction, lightweight tracking, approximate camera-to-pitch projection, and qualitative video rendering.
+
+\section{Implemented Pipeline}
+\begin{enumerate}[leftmargin=*]
+   \item \textbf{Frame extraction:} frames are sampled from SoccerNet-style broadcast videos, either as an evenly spaced subset for checkpoint development or as a temporally ordered segment extracted from the first 30 seconds of each video (Section~\ref{sec:framecoverage}).
+    \item \textbf{Detection:} YOLOv8 detects people and sports balls.
+    \item \textbf{Field filtering:} a green-field HSV mask is closed and opened to segment the playing surface. For player filtering, it is eroded by a dynamic kernel (proportional to image height) to exclude sideline managers and bench personnel.
+    \item \textbf{Team classification:} upper-body crops are enhanced via CLAHE and saturation boosting, then classified into Team~A, Team~B, Goalkeeper~A/B, and Referee labels using a Zero-Shot Nearest Prototype Classifier with HSV rules and RGB fallback (see Section~\ref{sec:quality}).
+    \item \textbf{Pitch lines:} Canny and probabilistic Hough transforms extract white pitch markings for camera drift correction and overlays.
+    \item \textbf{Tracking:} a deterministic constant-velocity tracker maintains frame-to-frame IDs using position, team label, and dominant color.
+    \item \textbf{Projection:} a Zero-Shot homography is estimated from the field mask, with dynamic height correction via vanishing point perspective lines and camera panning odometry anchored by pitch-line matching (see Section~\ref{sec:zeroshot}).
+    \item \textbf{Final output:} every input frame is rendered as a side-by-side broadcast overlay and mini-map; an MP4 video and JSON results are exported. When run on the 30-second extracted segment, the video is encoded at the source broadcast frame rate, producing a continuous short-form replay rather than a full-match recording.
+\end{enumerate}
+
+\section{Quality Improvements}
+\label{sec:quality}
+
+Several heuristic-based quality improvements were introduced to improve role classification, color differentiation, and spatial accuracy.
+
+\subsection{Image Enhancement for Jersey Differentiation}
+
+Broadcast footage of teams wearing similar jerseys (e.g.\ blue and claret/purple) yields poor K-Means cluster separation on raw crops. We apply a two-stage enhancement pipeline to each upper-body crop:
+
+\begin{enumerate}
+    \item \textbf{CLAHE (Contrast Limited Adaptive Histogram Equalization)} in LAB color space: the lightness channel $L$ is equalized with a clip limit of 3.0 and a $4 \times 4$ tile grid. This amplifies local contrast without clipping highlights~.
+    \item \textbf{Saturation and value boosting} in HSV space: $S' = \min(255, \, 1.8 \cdot S)$ and $V' = \min(255, \, 1.1 \cdot V)$. Boosting saturation separates chromatic jerseys from the desaturated gray/black of referees.
+\end{enumerate}
+
+\subsection{Zero-Shot Nearest Prototype Classification}
+\label{sec:heuristics}
+
+Instead of frame-by-frame unsupervised clustering (which lacks consistency and fails to resolve closely colored jerseys), we formulate team and role classification as a \textbf{Zero-Shot Nearest Prototype Classification} task. For each enhanced player crop, we extract its dominant HSV color $(H, S, V)$ and match it using hand-crafted decision rules:
+\begin{itemize}
+    \item \textbf{Goalkeeper}: If Hue falls in the green spectrum ($35 \leq H \leq 85$) with $S \geq 45$, $V \geq 45$.
+    \item \textbf{Referee}: If the kit is dark ($V < 90$) and desaturated ($S < 95$), indicating the referee's black kit.
+    \item \textbf{Team A (Chelsea)}: If Hue is in the blue spectrum ($95 \leq H \leq 135$) with $S \geq 50$, $V \geq 40$.
+    \item \textbf{Team B (Burnley)}: If Hue is in the claret/purple spectrum ($H < 25$ or $H > 145$) with $S \geq 50$, $V \geq 40$.
+\end{itemize}
+If a player crop does not clearly fall into these boundaries, a fallback distance metric assigns it to the closest class centroid (Team A blue, Team B claret, or Referee black) based on the Euclidean distance in RGB color space.
+
+\subsection{Population Caps and Spatial Heuristics}
+
+To prevent noisy color classifications from yielding implausible lineups, we apply strict football-domain constraints:
+\begin{itemize}
+    \item \textbf{At most 1 Goalkeeper per half}: Candidates are grouped by side. On each side, only the player closest to the goal line is classified as the Goalkeeper; other candidates are demoted to their closest team.
+    \item \textbf{At most 1 Referee}: If multiple referee candidates are identified, we validate them by ensuring their RGB distance to the black prototype is under 35.0. We keep the best candidate and reclassify the others to Team A/B, preventing false positives when no referee is in view.
+    \item \textbf{At most 11 players per team} (including goalkeeper): Extra players are demoted to unlabeled based on lower YOLO confidence scores.
+\end{itemize}
+
+\subsection{Sideline Personnel Filtering via Mask Erosion}
+
+To prevent managers, substitute players, and sideline assistants standing outside the touchline from being projected onto the playing field, the green-field segmentation mask is eroded before filtering player coordinates. The erosion uses a rectangular structuring element with a dynamic kernel size $K = \max(3, \, \text{odd}(H_\text{image} / 35))$. This removes a buffer of approximately 20 pixels (about 1--2 meters on the pitch) along the boundaries in standard $1280 \times 720$ frames, ensuring that only active players on the playing surface are retained.
+
+\section{Zero-Shot Camera Estimation}
+\label{sec:zeroshot}
+
+No camera calibration parameters, SoccerNet homography files, or manual pitch annotations are used. The homography is estimated purely from the current frame's field mask geometry. This constitutes \textbf{Zero-Shot Unsupervised Homography Estimation}, meaning the system generalizes to any broadcast without requiring prior training examples, calibration boards, or per-stadium metadata~.
+
+\subsection{Partial-Pitch Mapping and Vanishing Point Height Estimation}
+
+Each broadcast frame captures a fraction of the pitch. To prevent 30-meter jumps caused by noisy boundary detections at the edges of the broadcast screen, we map the frame to a sliding window of width $w = 48\,$m centered on the tracked camera position:
+\[
+x_\text{start} = x_\text{camera} - w/2, \quad x_\text{end} = x_\text{camera} + w/2
+\]
+The boundaries are clamped smoothly to the pitch limits $[0, \, 105]\,$m. 
+
+Furthermore, when the near touchline is off-screen (the green-field mask extends to the bottom of the image), mapping the bottom of the image directly to the near touchline ($68\,$m) introduces severe vertical compression and distortion. We dynamically estimate the physical y-coordinate $Y_\text{bottom}$ corresponding to the bottom of the screen using the vanishing point $Y_\text{vanish}$ of the converging left and right boundaries of the field mask:
+\[
+Y_\text{vanish} = Y_\text{top} - \frac{W_\text{top}}{m_\text{right} - m_\text{left}}, \quad Y_\text{bottom} = 68.0 \cdot \frac{R}{R - 1.0} \cdot \frac{Y_\text{bottom,px} - Y_\text{top}}{Y_\text{bottom,px} - Y_\text{vanish}}
+\]
+where $R = 2.5$ represents the typical camera-to-pitch perspective ratio, and $m_\text{left}, m_\text{right}$ are the slopes of the field boundaries. This dynamically scales the target homography coordinate system to maintain accurate vertical (height) positions on the mini-map.
+
+\subsection{Camera Panning Odometry and Line-Based Snapping}
+
+Frame-to-frame horizontal panning is estimated from the median pixel displacement of matched player tracks:
+\[
+\Delta x_\text{meters} = \frac{\text{median}(\Delta x_\text{pixels})}{W_\text{image}} \cdot w_\text{visible}
+\]
+The cumulative camera center is clamped to $[w/2, \, 105 - w/2]$. 
+
+To prevent cumulative drift in the camera tracking state, we implement a line-based snapping algorithm. White vertical-ish pitch markings are extracted via probabilistic Hough transform. We project the expected positions of key vertical markings (goal lines at $0.0$/$105.0\,$m, penalty lines at $16.5$/$88.5\,$m, and the center line at $52.5\,$m) into the image space using the current camera state. If a detected vertical line is within a threshold of $8\%$ of the image width from an expected position, the camera coordinate $x_\text{camera}$ is corrected by the displacement, keeping the panning odometry perfectly anchored to the physical pitch geometry. Additionally, on the first frame, $x_\text{camera}$ is initialized near $24.0\,$m or $81.0\,$m if a goal line is detected at the boundary, ensuring a correct start position.
+
+\section{Disadvantages and Failure Modes}
+This experiment revealed several significant disadvantages and scenarios where the algorithm fails:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Color Classification Confusion:} The zero-shot nearest prototype HSV classification relies on static hue thresholds. It struggles with lighting variations, shadows, and jerseys that blend with the background or other team colors. Referees are often incorrectly classified, and the heuristic frequently forces players into incorrect roles (e.g., mislabeling Chelsea/Burnley players).
+    \item \textbf{Projection Instability:} The unsupervised camera projection is highly unstable. Position estimation on the mini-map is particularly off in both width and height when perspective lines are missing or only partially detected (especially outside the central circle). This causes severe spatial drift and jittering.
+    \item \textbf{Incomplete Mask Filtering:} Although mask erosion removes some sideline personnel, the algorithm still occasionally includes managers and sideline referees standing outside the field bounds (touchline).
+    \item \textbf{Spurious Assumptions:} The algorithm uses rigid population caps (e.g., exactly one referee, up to one goalkeeper per side), forcing it to find these entities even if they are not in the shot, leading to false positives.
+\end{itemize}
+
+\section{Algorithms and Techniques Used}
+For readers wishing to understand the overall algorithm, the following techniques are foundational to the experimental pipeline:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{YOLO (You Only Look Once):} A real-time object detection system used to locate players and sports balls in the broadcast frames.
+    \item \textbf{Color Space Conversion (HSV/LAB):} Used to isolate the green pitch (HSV) and perform CLAHE contrast enhancement (LAB) on player crops.
+    \item \textbf{Zero-Shot Nearest Prototype Classification:} Assigning a class to an object based on its distance to predefined heuristic centroids rather than dynamic clustering like K-Means.
+    \item \textbf{Hough Transform \& Canny Edge Detection:} Classical computer vision algorithms used to extract straight lines (pitch markings) from edge maps.
+    \item \textbf{Constant-Velocity Tracking:} A simplified kinematic tracker that associates detections across frames based on predicted linear motion.
+    \item \textbf{Vanishing Point Homography Estimation:} Computing a perspective transformation (homography) by finding the intersection of parallel lines in the image plane (vanishing point) to dynamically scale the camera projection.
+\end{itemize}
+
+\section{Scope Adaptations}
+The original definition mentioned YOLO feature-map extraction, Kalman filtering, Hungarian assignment, ORB/SIFT camera tracking, and quantitative projection error against SoccerNet calibration. These parts were simplified because the local subset contains static extracted frames and no verified ground-truth identities or camera calibration files.
+
+The final implementation keeps the same user-facing goal but uses KISS (Keep It Simple, Stupid) alternatives: a constant-velocity greedy tracker and a field-mask homography. True ID switches, F1-score, and metric projection error are reported as unavailable when no manual labels or calibration ground truth are supplied.
+
+\section{Final Video Frame Coverage}
+
+\label{sec:framecoverage}
+
+Frame extraction supports two modes. \texttt{extract-frames --count N} produces an evenly spaced subset of $N$ frames (50 by default), used for fast iteration and checkpoint evaluation.
+\texttt{extract-frames --all} extracts all frames from the \textbf{first 30 seconds of each source video}, preserving original temporal order and writing the source frame rate to \texttt{frame\_metadata.json}.
+
+When \texttt{run} is executed on this dataset, it reads the recorded frame rate and encodes \texttt{pitchvision\_minimap.mp4} at the original broadcast speed. This produces a temporally faithful replay of a short segment of the match rather than a full-game reconstruction.
+If \texttt{frame\_metadata.json} is absent, such as when using the evenly spaced subset, the output video falls back to a fixed 5 fps.
+
+\section{Qualitative Output}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{../../outputs/final/final_contact_sheet.jpg}
+    \caption{Representative final frames showing broadcast detections with track IDs and the projected mini-map. Colors: Blue = Team~A, Orange = Team~B, Green = Goalkeeper~A, Pink = Goalkeeper~B, Yellow = Referee.}
+\end{figure}
+
+\section{Deliverables}
+\begin{itemize}[leftmargin=*]
+    \item Complete source code in \texttt{src/pitchvision} and CLI in \texttt{scripts/pipeline.py}.
+    \item Configurable YOLO/team/line parameters in \texttt{config/pipeline.yaml}.
+    \item Final results in \texttt{outputs/final/results.json}.
+    \item Final side-by-side video in \texttt{outputs/final/pitchvision\_minimap.mp4}, covering a 30-second extracted segment of the broadcast when generated from a complete (\texttt{--all}) frame extraction (Section~\ref{sec:framecoverage}).
+    \item Final report in \texttt{doc/final\_report/final\_report.pdf}.
+    \item Tests in \texttt{tests/}.
+\end{itemize}
+
+\section{Conclusion}
+As an experimental study, the project highlights the challenges of unsupervised projection and classification on short broadcast segments, explicitly documenting limitations such as projection instability and classifier confusion rather than hiding them.
+
+\end{document}

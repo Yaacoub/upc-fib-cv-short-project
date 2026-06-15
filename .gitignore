@@ -1,0 +1,15 @@
+.DS_Store
+.venv/
+.venv-pitchvision/
+.pycache/
+__pycache__/
+.cache/
+.env
+*.pyc
+yolov8*.pt
+data/smoke/
+outputs/final/*
+outputs/results/*
+data/soccernet/*
+data/full_frames/*
+data/subset/*

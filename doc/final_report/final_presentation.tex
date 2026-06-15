@@ -1,0 +1,183 @@
+\documentclass[10pt]{beamer}
+\usetheme{Madrid}
+\usecolortheme{whale}
+
+\usepackage[utf8]{inputenc}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{tikz}
+
+% Configuration for code snippet presentations if needed
+\lstset{
+    backgroundcolor=\color{gray!10},
+    basicstyle=\ttfamily\scriptsize,
+    breaklines=true,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{orange}
+}
+
+% --- Presentation Info ---
+\title[PitchVision]{PitchVision: Broadcast to 2D Mini-Map Projection}
+\subtitle{Computer Vision Course Project}
+\author[Peter Yaacoub]{Peter Yaacoub}
+\institute[Computer Vision]{Project Type: Productivity}
+\date{\today}
+
+\begin{document}
+
+% --- Slide 1: Title Slide ---
+\begin{frame}
+    \titlepage
+\end{frame}
+
+% --- Slide 2: Project Motivation & Objectives ---
+\begin{frame}{Project Motivation \& Goal}
+    \begin{block}{Problem Statement}
+        Broadcast cameras provide excellent viewing perspective but fail to explicitly convey the full tactical layout and player configurations across a pitch.
+    \end{block}
+    \vspace{0.3cm}
+    \textbf{Project Goal:} \\
+    Build an experimental, unsupervised pipeline that takes standard broadcast frames, processes them, and projects player coordinates onto a standardized 2D tactical mini-map.
+    \vspace{0.3cm}
+    \begin{itemize}
+        \item No camera calibration metrics provided beforehand.
+        \item Operates without verified ground-truth annotations.
+        \item Identifies explicit failure modes and practical limitations of unsupervised frameworks.
+    \end{itemize}
+\end{frame}
+
+% --- Slide 3: Scope and Non-Goals ---
+\begin{frame}{Scope \& Boundaries}
+    To keep the pipeline strictly focused on core Computer Vision components:
+    \vspace{0.4cm}
+    \begin{columns}[t]
+        \begin{column}{0.48\textwidth}
+            \color{blue}\textbf{What PitchVision Does:}
+            \begin{itemize}
+                \color{black}
+                \item Detects players and referee via YOLO.
+                \item Clusters jerseys by color groups.
+                \item Generates homography matrices from field line segmentations.
+                \item Tracks player ids across consecutive frames.
+            \end{itemize}
+        \end{column}
+        \begin{column}{0.48\textwidth}
+            \color{red}\textbf{Explicit Non-Goals:}
+            \begin{itemize}
+                \color{black}
+                \item No predictive modeling on future movements/passes.
+                \item No multi-camera sync (single continuous shot focus).
+                \item Does not try to create perfect reconstructions over entire matches.
+            \end{itemize}
+        \end{column}
+    \end{columns}
+\end{frame}
+
+% --- Slide 4: Overall Pipeline Architecture ---
+\begin{frame}{The Implemented Pipeline}
+    The framework operates sequentially on raw video inputs:
+    \vspace{0.2cm}
+    \begin{enumerate}
+        \item \textbf{Frame Extraction:} Sampled evenly spaced subsets (for debugging) or sequential intervals (for final analysis).
+        \item \textbf{Object Detection:} Deep learning (YOLO) identifies players, ball, and referees.
+        \item \textbf{Jersey-Color Clustering:} Masking out the grass backdrop and identifying team boundaries via K-Means.
+        \item \textbf{Field Line Extraction:} Canny Edge + Hough Transform to determine layout indicators.
+        \item \textbf{Approximate Projection:} Direct transformation matrix mapping frame boundaries onto a 2D plane.
+        \item \textbf{Tracking:} Smooth frame-to-frame correlations with persistent track IDs.
+    \end{enumerate}
+\end{frame}
+
+% --- Slide 5: Detection & Jersey-Color Clustering ---
+\begin{frame}{Detection \& Team Clustering}
+    \begin{itemize}
+        \item \textbf{YoloDetector:} Crops bounding boxes around players and filters them based on expected bounding box area parameters.
+        \item \textbf{Grass Masking:} Uses an HSV range filter (35--95 Hue) to isolate and mask out field green, protecting color integrity.
+        \item \textbf{Upper Body Isolation:} Crops to the upper $62\%$ of the player box to minimize socks/boots interference.
+        \item \textbf{Clustering Strategy:} Employs K-Means to identify primary team configurations while handling exceptions for referees and goalkeepers.
+    \end{itemize}
+\end{frame}
+
+% --- Slide 6: Field Masking \& Homography Estimation ---
+\begin{frame}{Pitch Line Extraction \& Homography}
+    Establishing spatial coordinates without fixed calibrations:
+    \begin{itemize}
+        \item \textbf{Field Segments:} Extracted via morphology operators on green masks.
+        \item \textbf{Line Detection:} Hough Transform (\texttt{HoughLinesP}) isolates white pitch markings.
+        \item \textbf{Homography Estimation:} Map visual boundaries to standard $105\text{m} \times 68\text{m}$ definitions.
+    \end{itemize}
+    \vspace{0.1cm}
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.75\textwidth]{../../outputs/final/overlays/frame_000001.jpg}
+        \caption{Visualizing extracted field lines and player detection overlays.}
+    \end{figure}
+\end{frame}
+
+% --- Slide 7: Multiple Object Tracking System ---
+\begin{frame}{The SimpleTracker Framework}
+    \begin{block}{KISS Paradigm Implementation}
+        Swapped complex Hungarian/Kalman setups for a light, deterministic, dependency-free tracker relying on \textbf{constant-velocity predictions} and \textbf{greedy assignment}.
+    \end{block}
+    \vspace{0.2cm}
+    \textbf{Assignment Cost Metric:}
+    \[ \text{Cost} = \text{Spatial Distance} + \text{Team Penalty} + \text{Color Penalty} \]
+    \begin{itemize}
+        \item \textbf{Velocity Vector:} Rolling momentum: $v_{new} = 0.6 \cdot v_{curr} + 0.4 \cdot v_{old}$.
+        \item \textbf{Persistence:} Tracks persist up to $6$ missing frames to handle temporary occlusion.
+    \end{itemize}
+\end{frame}
+
+% --- Slide 8: Data Splits and Evaluation Setup ---
+\begin{frame}{Experimental Setup \& Datasets}
+    The code supports subcommands: \texttt{extract-frames}, \texttt{run-checkpoint}, and \texttt{run}.
+    \vspace{0.3cm}
+    \begin{itemize}
+        \item \textbf{50\% Milestone Subset:} 50 static frames for validating detection and clustering.
+        \item \textbf{Final Target Segments:} Continuous video (10--15s) for evaluating panning artifacts and tracking consistency.
+    \end{itemize}
+    \vspace{0.2cm}
+    \textbf{Metrics:} Team clustering F1-scores and relative projection stability.
+\end{frame}
+
+% --- Slide 9: Intermediate vs Final Milestones ---
+\begin{frame}{Milestone Progression \& Visualization}
+    \begin{columns}[t]
+        \begin{column}{0.48\textwidth}
+            \textbf{50\% Checkpoint Status:}
+            \begin{itemize}
+                \item Reliable player bounding boxes.
+                \item Upper torso extraction resolved class mixing.
+                \item Ball detection thresholds optimized.
+            \end{itemize}
+        \end{column}
+        \begin{column}{0.48\textwidth}
+            \textbf{Final Implementation Outputs:}
+            \begin{itemize}
+                \item Stitched side-by-side videos.
+                \item Live updating mini-maps.
+                \item Unified logging via JSON.
+            \end{itemize}
+        \end{column}
+    \end{columns}
+    \vspace{0.4cm}
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.85\textwidth]{../../outputs/final/minimap_frames/frame_000001.jpg}
+        \caption{Side-by-side view: Broadcast overlay vs tactical tracking mini-map.}
+    \end{figure}
+\end{frame}
+
+% --- Slide 10: System Limitations ---
+\begin{frame}{Project Evaluation \& Limitations}
+    \begin{block}{Observed Failure Modes}
+        \begin{itemize}
+            \item \textbf{Projection Jitter:} Slight changes in line detections skew the homography matrix calculation frame-to-frame.
+            \item \textbf{Jersey Mixing:} Shadows, movement, or kits close to green create clustering edge cases.
+        \end{itemize}
+    \end{block}
+\end{frame}
+
+\end{document}

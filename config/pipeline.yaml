@@ -1,0 +1,39 @@
+model: yolov8n.pt
+confidence: 0.02
+iou: 0.45
+classes:
+  person: 0
+  sports_ball: 32
+team_clustering:
+  clusters: 3
+  min_crop_area: 100
+  grass_hue_range: [35, 95]
+  histogram_bins: [8, 4, 4]
+  goalkeeper_distance_factor: 1.35
+  max_players_per_team: 11
+  contrast_clip_limit: 3.0
+  saturation_boost: 1.8
+  value_boost: 1.1
+  outlier_threshold: 50.0
+  use_predefined_colors: true
+  team_a_color_rgb: [15, 30, 130]
+  team_b_color_rgb: [95, 35, 40]
+  referee_color_rgb: [55, 55, 55]
+  goalkeeper_color_rgb: [90, 160, 50]
+projection:
+  visible_pitch_width_m: 48.0
+field_lines:
+  canny_low: 70
+  canny_high: 170
+  hough_threshold: 90
+  min_line_length: 80
+  max_line_gap: 12
+person_min_confidence: 0.20
+ball_min_confidence: 0.01
+ball_min_box_area_ratio: 0.00001
+ball_min_box_width: 4
+ball_min_box_height: 4
+min_box_area_ratio: 0.0005
+max_box_area_ratio: 0.15
+min_box_width: 12
+min_box_height: 16

@@ -1,0 +1,95 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{float}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+
+\newcommand{\sampleframe}[1]{%
+\begin{minipage}[t]{0.235\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{../../outputs/results/overlays/#1}\\
+    {\scriptsize \texttt{\detokenize{#1}}}
+\end{minipage}%
+}
+
+\begin{document}
+
+\begin{center}
+    {\Large \textbf{PitchVision Intermediate Report}} \\
+    {\large 50\% Checkpoint: Visual Qualitative Results} \\
+    \vspace{0.15cm}
+    \textbf{Project:} Broadcast to 2D Mini-Map Projection \\
+    \textbf{Author:} Peter Yaacoub \\
+    \textbf{Subset:} 50 static frames with YOLO detections and team color labels
+\end{center}
+
+\vspace{0.2cm}
+\hrule
+
+\section{Checkpoint Goal}
+This report documents the midpoint milestone defined in the project specification: the pipeline must successfully process single static frames and produce qualitative outputs with bounding boxes and team color labels. The current implementation covers player detection, jersey-color clustering, and overlay generation on the 50-image subset.
+
+\section{Subset Summary}
+The following aggregate results were produced from the 50-frame subset.
+
+\begin{tabularx}{\textwidth}{@{} >{\raggedright\arraybackslash}p{0.45\textwidth} X @{} }
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Images processed & 50 \\
+Total person detections & 536 \\
+Average person detections per frame & 10.72 \\
+Total ball detections & 38 \\
+Average field lines detected per frame & 2.40 \\
+Team accuracy & Not available yet, because the subset is currently used for qualitative validation \\
+\bottomrule
+\end{tabularx}
+
+\section{Qualitative Results}
+The overlays below show representative frames from the 50-image subset. Each output includes the detected bounding boxes and the team label assigned from jersey-color clustering. The selection is spread across the subset so the report captures different camera compositions, player densities, and lighting conditions.
+
+\begin{figure}[H]
+    \centering
+    \sampleframe{frame_0001.jpg}\hfill
+    \sampleframe{frame_0005.jpg}\hfill
+    \sampleframe{frame_0010.jpg}\hfill
+    \sampleframe{frame_0015.jpg}
+
+    \vspace{0.35cm}
+
+    \sampleframe{frame_0020.jpg}\hfill
+    \sampleframe{frame_0025.jpg}\hfill
+    \sampleframe{frame_0030.jpg}\hfill
+    \sampleframe{frame_0035.jpg}
+
+    \vspace{0.35cm}
+
+    \sampleframe{frame_0040.jpg}\hfill
+    \sampleframe{frame_0045.jpg}\hfill
+    \sampleframe{frame_0048.jpg}\hfill
+    \sampleframe{frame_0050.jpg}
+    \caption{Representative qualitative outputs from the 50-image subset.}
+\end{figure}
+
+\section{Observed Behavior}
+The visual outputs are consistent with the checkpoint objective:
+
+\begin{itemize}[leftmargin=*]
+    \item The detector reliably finds the majority of visible players in the broadcast frames.
+    \item Team clustering is more stable on the regenerated run because the appearance features focus more tightly on the upper torso.
+    \item Referee labels now appear only on a few central detections, which is preferable to over-assigning referee status to regular players.
+    \item Ball detections are still sparse, but the lower confidence threshold and larger inference size recover the ball more often than before.
+    \item Line extraction now returns a small, stable set of pitch markings again after restoring the baseline Hough settings.
+\end{itemize}
+
+\section{Checkpoint Status and Next Steps}
+The 50\% milestone is complete for the static-image stage. The next implementation steps are to add explicit evaluation against manual labels, improve robustness of the team-color assignment on difficult crops, and then extend the pipeline to frame-to-frame tracking and pitch projection.
+
+\end{document}

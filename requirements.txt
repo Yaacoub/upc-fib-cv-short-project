@@ -1,0 +1,8 @@
+ultralytics>=8.2.0
+opencv-python>=4.9.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+Pillow>=10.0.0
+PyYAML>=6.0.0
+SoccerNet>=0.1.62
+python-dotenv>=1.0.0

@@ -1,0 +1,120 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{amsmath}
+
+% Remove paragraph indentation and add space between paragraphs
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+
+\begin{document}
+
+% --- Header Section ---
+\begin{center}
+    {\Large \textbf{Short Project Definition}} \\[0.2cm]
+    {\LARGE \textbf{PitchVision — Broadcast to 2D Mini-Map Projection}} \\[0.4cm]
+    \textbf{Author:} Peter Yaacoub \\
+    \textbf{Project Type:} Productivity \\
+    \textbf{Course:} Computer Vision
+\end{center}
+\vspace{0.2cm}
+\hrule
+\vspace{0.5cm}
+
+% --- Section 1 ---
+\section{Project Description}
+
+\subsection{Problem Statement and Motivation}
+Broadcast cameras provide a great perspective for viewers but fail to show the full tactical layout of a football match. Tactical analysis requires knowing the relative positions of all visible players on a standardized 2D plane (a mini-map). This project will build a pipeline that takes a perspective broadcast view of a football match and projects the visible players onto a simplified 2D pitch map using traditional Computer Vision and Deep Learning techniques.
+
+\subsection{Scope and Non-Goals}
+To ensure the project remains feasible and focused strictly on Computer Vision:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{I will NOT} attempt to predict future player movements or passes.
+    \item \textbf{I will NOT} track players uniquely across camera cuts (tracking will be restricted to continuous camera shots).
+    \item \textbf{I will NOT} process 3D ball trajectories (the focus is on 2D floor projections).
+\end{itemize}
+
+\subsection{Proposed CV Techniques}
+\vspace{0.2cm}
+\noindent
+\begin{tabularx}{\textwidth}{@{} >{\raggedright\arraybackslash}p{4cm} X @{}}
+\toprule
+\textbf{Technique} & \textbf{Application / Why I use it} \\
+\midrule
+\textbf{YOLOv8 (Pre-trained)} & To detect players, the referee, and the ball rapidly and accurately. \\
+\addlinespace
+\textbf{K-Means Color Clustering} & Applied to player bounding boxes to separate Team A, Team B, and the Referee based on dominant jersey colors. \\
+\addlinespace
+\textbf{Canny Edge \& Hough Transform} & To detect the white field lines and extract intersection points. \\
+\addlinespace
+\textbf{YOLO Feature Map Extraction + Kalman Filter} & To perform lightweight frame-to-frame Multi-Object Tracking (MOT). Uses ROI Align on intermediate YOLO layers for appearance matching, a Kalman filter for motion prediction, and the Hungarian algorithm for association. \\
+\addlinespace
+\textbf{Homography Matrix (H)} & To compute the perspective warp from the camera view to a 2D top-down template using the detected line intersections. \\
+\addlinespace
+\textbf{ORB/SIFT + RANSAC} & To track background/field features between consecutive frames when the camera pans, allowing smooth updates to the homography matrix. \\
+\bottomrule
+\end{tabularx}
+
+% --- Section 2 ---
+\section{Project Pipeline Design and 50\% Milestone}
+
+\subsection{End-to-End Pipeline}
+The project is divided into 6 chronological stages:
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Player Detection:} Run YOLO to extract bounding boxes for all humans and the ball on the pitch.
+    \item \textbf{Team Classification:} Extract the crop of each bounding box, mask out the green grass background, and use K-Means color clustering to assign labels (Team A, Team B, Ref).
+    \item \textbf{Field Detection:} Apply Canny Edge Detection and Hough Lines to isolate pitch lines and identify key intersections (e.g., penalty box corners, midfield circle).
+    \item \textbf{Consistent Player Tracking:} Extract visual feature embeddings from the detected bounding boxes using YOLO feature maps. Apply a Kalman Filter and the Hungarian Algorithm to assign and maintain unique, consistent tracking IDs across continuous frames.
+    \item \textbf{Homography (Camera Tracking):} Calculate the projection matrix $H$ using the intersections. Use ORB/SIFT + RANSAC to update $H$ continuously during camera panning.
+    \item \textbf{Mini-Map Projection:} Multiply the bottom-center coordinates of each tracked player's bounding box by the Homography matrix to project them onto a 2D radar graphic.
+\end{enumerate}
+
+\subsection{50\% Milestone Definition}
+\textit{(Stages 1, 2, and 3 on static images)} \\
+By the mid-point review, the video tracking components will not yet be active. The pipeline must successfully process \textbf{single, static frames}. 
+
+\textbf{Deliverables for the 50\% checkpoint:}
+\begin{itemize}[leftmargin=*]
+    \item A working YOLO detection script.
+    \item K-means clustering correctly color-coding players.
+    \item A subset data folder containing 50 labeled frames.
+    \item An intermediate report showing visual qualitative results (bounding boxes + team color labels) on the 50-image subset.
+\end{itemize}
+
+% --- Section 3 ---
+\section{Test Design and Image Database}
+
+\subsection{Image Database \& Data Source}
+The primary data will be sourced from open-source football datasets containing broadcast videos and camera calibration/ground-truth tracking data:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{SoccerNet-Tracking:} Provides raw broadcast video clips and ground-truth bounding boxes.
+    \item \textbf{DFL Bundesliga Data Shootout (Kaggle):} Excellent source of varied broadcast angles and lighting conditions.
+\end{itemize}
+
+\subsection{Planned Subset Manifest}
+Instead of processing full 90-minute videos, I will extract a curated dataset of frames to ensure fast iterations and clean evaluation:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{50\% Milestone Subset:} $\approx$ 50 static, distinct frames (extracted every 10 seconds from 2 different broadcast clips). Used to test YOLO and K-Means.
+    \item \textbf{Final Target Dataset:} 5 short video clips (10--15 seconds each, $\approx$ 300 frames per clip) from different stadiums and lighting conditions to test the tracking consistency, RANSAC camera panning, and homography stability.
+\end{itemize}
+
+\subsection{Test Design}
+I will evaluate the system using both quantitative metrics and qualitative visualizations:
+
+\textbf{Quantitative Metrics:}
+\begin{itemize}[leftmargin=*]
+    \item \textbf{K-Means Classification Accuracy:} F1-score of player team assignments (compared against manual labeling of the static subset).
+    \item \textbf{Tracking ID Consistency:} Frequency of identity switches (ID switches) or track fragmentations during continuous shots to evaluate the robustness of the feature-matching and Kalman-filtering framework.
+    \item \textbf{Projection Error (Final Phase):} Mean Absolute Error (MAE) measured in meters/pixels between my projected 2D coordinates and the ground-truth SoccerNet 2D coordinates.
+\end{itemize}
+
+\textbf{Qualitative Evaluation:}
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Mini-Map Video Generation:} A side-by-side video showing the original broadcast on the left (with bounding boxes and unique tracking ID labels) and the live-updating 2D mini-map on the right.
+\end{itemize}
+
+\end{document}
